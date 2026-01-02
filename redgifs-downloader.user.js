@@ -193,7 +193,7 @@
              btn.style.fontSize = '10px';
         } else {
              // For watch page
-             btn.style.bottom = '20px';
+             btn.style.top = '20px';
              btn.style.right = '20px';
              btn.style.padding = '10px 15px';
              btn.style.fontSize = '14px';
