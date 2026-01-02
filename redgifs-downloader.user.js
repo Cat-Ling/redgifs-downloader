@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Redgifs Downloader
 // @namespace    https://github.com/serpapps/redgifs-downloader
-// @version      1.0.2
+// @version      1.0.3
 // @description  A userscript to download GIFs and videos from RedGifs.com
 // @author       SERP Apps
 // @match        *://*.redgifs.com/*
@@ -91,12 +91,11 @@
 
     // --- Download Logic ---
 
-    async function downloadMedia(id) {
+    async function downloadMedia(id, btnElement) {
         try {
-            const btn = document.getElementById(`rg-dl-btn-${id}`);
-            if (btn) {
-                btn.textContent = '...';
-                btn.disabled = true;
+            if (btnElement) {
+                btnElement.textContent = '...';
+                btnElement.disabled = true;
             }
 
             const gifData = await getGifInfo(id);
@@ -114,16 +113,16 @@
                     url: url,
                     name: filename,
                     onload: () => {
-                        if (btn) {
-                            btn.textContent = 'Done';
-                            setTimeout(() => { btn.textContent = 'Download'; btn.disabled = false; }, 2000);
+                        if (btnElement) {
+                            btnElement.textContent = 'Done';
+                            setTimeout(() => { btnElement.textContent = 'Download'; btnElement.disabled = false; }, 2000);
                         }
                     },
                     onerror: (err) => {
                         console.error('Redgifs Downloader: Download failed', err);
-                        if (btn) {
-                            btn.textContent = 'Error';
-                            setTimeout(() => { btn.textContent = 'Download'; btn.disabled = false; }, 2000);
+                        if (btnElement) {
+                            btnElement.textContent = 'Error';
+                            setTimeout(() => { btnElement.textContent = 'Download'; btnElement.disabled = false; }, 2000);
                         }
                     }
                 });
@@ -141,16 +140,16 @@
                         document.body.appendChild(link);
                         link.click();
                         document.body.removeChild(link);
-                        if (btn) {
-                            btn.textContent = 'Done';
-                            setTimeout(() => { btn.textContent = 'Download'; btn.disabled = false; }, 2000);
+                        if (btnElement) {
+                            btnElement.textContent = 'Done';
+                            setTimeout(() => { btnElement.textContent = 'Download'; btnElement.disabled = false; }, 2000);
                         }
                     },
                     onerror: function(err) {
                         console.error('Redgifs Downloader: Download failed', err);
-                         if (btn) {
-                            btn.textContent = 'Error';
-                            setTimeout(() => { btn.textContent = 'Download'; btn.disabled = false; }, 2000);
+                         if (btnElement) {
+                            btnElement.textContent = 'Error';
+                            setTimeout(() => { btnElement.textContent = 'Download'; btnElement.disabled = false; }, 2000);
                         }
                     }
                 });
@@ -158,10 +157,9 @@
 
         } catch (error) {
             console.error('Redgifs Downloader: Error downloading:', error);
-            const btn = document.getElementById(`rg-dl-btn-${id}`);
-            if (btn) {
-                btn.textContent = 'Error';
-                 setTimeout(() => { btn.textContent = 'Download'; btn.disabled = false; }, 2000);
+            if (btnElement) {
+                btnElement.textContent = 'Error';
+                 setTimeout(() => { btnElement.textContent = 'Download'; btnElement.disabled = false; }, 2000);
             }
             alert(`Redgifs Downloader: Failed to download: ${error.message}`);
         }
@@ -170,13 +168,16 @@
     // --- UI Injection ---
 
     function createDownloadButton(id, isSmall = false) {
-        if (document.getElementById(`rg-dl-btn-${id}`)) return null;
+        const btnId = `rg-dl-btn-${id}`;
+        // We do not check for existence by ID here because we might have multiple players
+        // and we want a new button instance for the specific container.
+        // The calling function handles uniqueness per container.
 
         const btn = document.createElement('button');
-        btn.id = `rg-dl-btn-${id}`;
+        btn.id = btnId;
         btn.textContent = 'Download';
         btn.style.position = 'absolute';
-        btn.style.zIndex = '9999';
+        btn.style.zIndex = '2147483647'; // Max Int to be on top of everything
         btn.style.backgroundColor = '#e31010';
         btn.style.color = '#fff';
         btn.style.border = 'none';
@@ -202,54 +203,54 @@
         btn.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
-            downloadMedia(id);
+            downloadMedia(id, btn);
         });
 
         return btn;
     }
 
-    function processWatchPage() {
-        // Pattern: redgifs.com/watch/<id> or /ifr/<id>
-        const match = window.location.pathname.match(/\/(?:watch|ifr)\/([^\/?#]+)/);
-        if (match) {
-            const id = match[1];
+    function processFeedVideos() {
+        // Find all potential player containers.
+        // Based on analysis, .Player is the main wrapper.
+        const players = document.querySelectorAll('.Player');
 
-            // Try to find the specific video for this ID by checking src or poster attributes
-            // This is more robust than just picking the first video, especially in a feed.
-            const videos = document.querySelectorAll('video');
-            let targetVideo = null;
+        players.forEach(player => {
+             // Check if we already injected a button into THIS player instance
+             if (player.querySelector('button[id^="rg-dl-btn-"]')) return;
 
-            for (const video of videos) {
-                const src = video.src || '';
-                const poster = video.getAttribute('poster') || '';
-                if (src.toLowerCase().includes(id.toLowerCase()) || poster.toLowerCase().includes(id.toLowerCase())) {
-                    targetVideo = video;
-                    break;
-                }
-            }
+             let id = null;
 
-            // Fallback: if only one video, assume it's the one
-            if (!targetVideo && videos.length === 1) {
-                targetVideo = videos[0];
-            }
+             // Strategy 1: Look for data-feed-item-id on closest parent
+             // This is the most reliable way as seen in the HTML dump
+             const wrapper = player.closest('[data-feed-item-id]');
+             if (wrapper) {
+                 id = wrapper.getAttribute('data-feed-item-id');
+             }
 
-            // If we found a target video, inject button in its container
-            if (targetVideo) {
-                // Find .Player container to avoid overlays blocking clicks.
-                // Structure is usually .Player -> .Player-Video -> video.
-                // We want to append to .Player so the button is a sibling of .Player-OverLayer and z-indexed above it.
-                const player = targetVideo.closest('.Player');
-                const container = player || targetVideo.parentElement; // Fallback to parent if .Player not found
+             // Strategy 2: Fallback to video src/poster parsing
+             if (!id) {
+                 const video = player.querySelector('video');
+                 if (video) {
+                     const src = video.src || '';
+                     const poster = video.getAttribute('poster') || '';
+                     // Common pattern: /gifs/<id>/... or just <id> in filename
+                     // Example: https://api.redgifs.com/v2/gifs/anxiouszigzagelk/hd.m3u8
+                     const match = src.match(/\/gifs\/([a-zA-Z0-9]+)/) || poster.match(/\/([a-zA-Z0-9]+)-mobile\.jpg/);
+                     if (match) {
+                         id = match[1];
+                     }
+                 }
+             }
 
-                if (container && !container.querySelector(`#rg-dl-btn-${id}`)) {
-                    if (getComputedStyle(container).position === 'static') {
-                        container.style.position = 'relative';
-                    }
-                    const btn = createDownloadButton(id, false);
-                    container.appendChild(btn);
-                }
-            }
-        }
+             if (id) {
+                 // Ensure container is positioned
+                 if (getComputedStyle(player).position === 'static') {
+                     player.style.position = 'relative';
+                 }
+                 const btn = createDownloadButton(id, false);
+                 player.appendChild(btn);
+             }
+        });
     }
 
     function processGridItems() {
@@ -279,7 +280,7 @@
 
     function run() {
         try {
-            processWatchPage();
+            processFeedVideos();
             processGridItems();
         } catch (e) {
             console.error('Redgifs Downloader: Error in run loop', e);
