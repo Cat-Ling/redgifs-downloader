@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Redgifs Downloader
 // @namespace    https://github.com/serpapps/redgifs-downloader
-// @version      1.0.1
+// @version      1.0.2
 // @description  A userscript to download GIFs and videos from RedGifs.com
 // @author       SERP Apps
 // @match        *://*.redgifs.com/*
@@ -213,16 +213,40 @@
         const match = window.location.pathname.match(/\/(?:watch|ifr)\/([^\/?#]+)/);
         if (match) {
             const id = match[1];
-            // Find a suitable container. The video player wrapper.
-            const videoElement = document.querySelector('video');
-            if (videoElement) {
-                const wrapper = videoElement.parentElement;
-                 if (wrapper && !wrapper.querySelector(`#rg-dl-btn-${id}`)) {
-                    if (getComputedStyle(wrapper).position === 'static') {
-                        wrapper.style.position = 'relative';
+
+            // Try to find the specific video for this ID by checking src or poster attributes
+            // This is more robust than just picking the first video, especially in a feed.
+            const videos = document.querySelectorAll('video');
+            let targetVideo = null;
+
+            for (const video of videos) {
+                const src = video.src || '';
+                const poster = video.getAttribute('poster') || '';
+                if (src.toLowerCase().includes(id.toLowerCase()) || poster.toLowerCase().includes(id.toLowerCase())) {
+                    targetVideo = video;
+                    break;
+                }
+            }
+
+            // Fallback: if only one video, assume it's the one
+            if (!targetVideo && videos.length === 1) {
+                targetVideo = videos[0];
+            }
+
+            // If we found a target video, inject button in its container
+            if (targetVideo) {
+                // Find .Player container to avoid overlays blocking clicks.
+                // Structure is usually .Player -> .Player-Video -> video.
+                // We want to append to .Player so the button is a sibling of .Player-OverLayer and z-indexed above it.
+                const player = targetVideo.closest('.Player');
+                const container = player || targetVideo.parentElement; // Fallback to parent if .Player not found
+
+                if (container && !container.querySelector(`#rg-dl-btn-${id}`)) {
+                    if (getComputedStyle(container).position === 'static') {
+                        container.style.position = 'relative';
                     }
                     const btn = createDownloadButton(id, false);
-                    if (btn) wrapper.appendChild(btn);
+                    container.appendChild(btn);
                 }
             }
         }
